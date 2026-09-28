@@ -2,3 +2,4 @@ flask
 youtube-transcript-api>=1.0
 google-genai
 python-dotenv
+requests

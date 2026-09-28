@@ -7,11 +7,10 @@ import json
 import os
 import re
 import time
-import urllib.parse
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 from google import genai
 from google.genai import errors, types
@@ -84,11 +83,11 @@ def _now() -> str:
 
 def fetch_title(video_id: str) -> str | None:
     """Название видео через открытый сервис YouTube oEmbed (ключ не нужен)."""
-    video_url = f"https://www.youtube.com/watch?v={video_id}"
-    url = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(video_url, safe="")
+    params = {"format": "json", "url": f"https://www.youtube.com/watch?v={video_id}"}
     try:
-        with urllib.request.urlopen(url, timeout=10) as r:
-            return json.loads(r.read().decode("utf-8")).get("title")
+        r = requests.get("https://www.youtube.com/oembed", params=params, timeout=10)
+        r.raise_for_status()
+        return r.json().get("title")
     except Exception:
         return None  # название — не главное, без него тоже работаем
 

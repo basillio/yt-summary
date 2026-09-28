@@ -1,7 +1,11 @@
 """
-Веб-сервер. Запуск:  python app.py  →  открыть http://127.0.0.1:5000
+Веб-сервер. Запуск:  python app.py  — браузер откроется сам (http://127.0.0.1:5055)
 Сервер только принимает запросы от страницы и зовёт функции из core.py.
 """
+
+import os
+import threading
+import webbrowser
 
 from flask import Flask, jsonify, render_template, request
 from google.genai import errors as genai_errors
@@ -118,6 +122,15 @@ def clear_chat():
     return jsonify(ok=True)
 
 
+# Порт 5000 на macOS занят AirPlay, поэтому берём 5055.
+# Поменять можно строкой PORT=... в файле .env
+PORT = int(os.getenv("PORT", "5055"))
+
 if __name__ == "__main__":
-    print("Открой в браузере: http://127.0.0.1:5000")
-    app.run(debug=True)
+    url = f"http://127.0.0.1:{PORT}"
+    print(f"Приложение: {url}")
+    # В debug-режиме Flask запускает программу дважды (второй раз — для автоперезагрузки).
+    # Браузер открываем только в первом процессе и через 1,5 с, когда сервер уже поднялся.
+    if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        threading.Timer(1.5, webbrowser.open, args=[url]).start()
+    app.run(host="127.0.0.1", port=PORT, debug=True)

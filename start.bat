@@ -33,7 +33,7 @@ if not defined PY (
 echo [1/4] Python found: %PY%
 
 rem ---------- 2. Install libraries (only if missing) ----------
-%PY% -c "import flask, google.genai, youtube_transcript_api, dotenv" >nul 2>nul
+%PY% -c "import flask, google.genai, youtube_transcript_api, dotenv, requests" >nul 2>nul
 if errorlevel 1 (
     echo [2/4] Installing libraries, please wait...
     %PY% -m pip install --disable-pip-version-check -r requirements.txt
@@ -58,14 +58,13 @@ if not exist ".env" (
 )
 echo [3/4] API key file .env found
 
-rem ---------- 4. Start server and open browser ----------
+rem ---------- 4. Start server (app.py opens the browser itself) ----------
 echo [4/4] Starting server...
 echo.
-echo   App address: http://127.0.0.1:5000
+echo   The browser will open automatically: http://127.0.0.1:5055
 echo   Keep this window open while using the app.
 echo   To stop: close this window or press Ctrl+C.
 echo.
-start "" /min cmd /c "timeout /t 3 >nul & start http://127.0.0.1:5000"
 %PY% app.py
 
 echo.
