@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Конспектор</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<style>
+  :root {
+    --bg: #E9EDF1;
+    --surface: #FFFFFF;
+    --ink: #18202B;
+    --muted: #5A6573;
+    --line: #D3DAE2;
+    --accent: #0E6B6B;
+    --accent-ink: #FFFFFF;
+    --mark: #FFE36E;      /* «маркер» для текущей строки субтитров */
+    --mark-ink: #18202B;
+    --user: #DDEBEA;
+    --danger: #A23B2A;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12171D; --surface: #1B222B; --ink: #E6EBF0; --muted: #98A3B0;
+      --line: #2C3642; --accent: #3FB5AE; --accent-ink: #0B1A1A;
+      --mark: #E8C84A; --mark-ink: #16130A; --user: #1F3533; --danger: #E0806E;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 "Onest", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  input, textarea {
+    font: inherit; color: inherit; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  }
+  button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid transparent; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .primary { background: var(--accent); color: var(--accent-ink); padding: 10px 16px; font-weight: 600; }
+  .primary:disabled { opacity: .5; cursor: default; }
+  .ghost { background: none; border-color: var(--line); color: var(--ink); padding: 3px 10px; font-size: 14px; }
+  .muted { color: var(--muted); }
+  .error { color: var(--danger); }
+
+  header { display: flex; gap: 12px 24px; align-items: center; flex-wrap: wrap; padding: 16px 24px; }
+  h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+  #load-form { flex: 1; display: flex; gap: 8px; min-width: 280px; max-width: 760px; }
+  #url { flex: 1; min-width: 0; }
+  #status { margin: 0; font-size: 14px; color: var(--muted); }
+  #status.error { color: var(--danger); }
+  #empty { max-width: 60ch; margin: 12vh auto; padding: 0 24px; font-size: 18px; color: var(--muted); }
+
+  main {
+    display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 20px; padding: 0 24px 24px; align-items: start;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  h2 { font-size: 17px; font-weight: 600; margin: 0; }
+
+  #player-wrap { aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
+  #player-wrap iframe { width: 100%; height: 100%; display: block; border: 0; }
+
+  /* Субтитры: текущая строка подсвечивается, как маркером */
+  #transcript { height: 42vh; overflow-y: auto; position: relative; }
+  .line { display: flex; gap: 10px; padding: 3px 6px; border-radius: 4px; }
+  .line.now { background: var(--mark); color: var(--mark-ink); }
+  .tc {
+    font: inherit; font-size: 13px; font-variant-numeric: tabular-nums;
+    color: var(--accent); background: none; border: 0; padding: 0 2px;
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .line .tc { min-width: 56px; text-align: left; flex-shrink: 0; padding-top: 2px; }
+  .line.now .tc { color: inherit; }
+
+  .prose { max-width: 70ch; }
+  .prose > :first-child { margin-top: 0; }
+  .prose > :last-child { margin-bottom: 0; }
+  .prose ul, .prose ol { padding-left: 1.3em; }
+
+  /* Чат */
+  #messages { display: flex; flex-direction: column; gap: 10px; max-height: 50vh; overflow-y: auto; margin-bottom: 12px; }
+  #messages:empty::before {
+    content: "Спроси что угодно про видео. Таймкоды в ответах кликабельны: плеер перемотается на это место.";
+    color: var(--muted);
+  }
+  .msg { padding: 10px 12px; border-radius: 10px; max-width: 100%; }
+  .msg.user { background: var(--user); align-self: flex-end; max-width: 85%; white-space: pre-wrap; }
+  .msg.model { border: 1px solid var(--line); }
+  .msg.pending { color: var(--muted); }
+  .msg.error { color: var(--danger); border: 1px solid var(--danger); }
+  .msg .label { display: block; font-size: 13px; color: var(--muted); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .scope { border: 0; padding: 0; margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 15px; }
+  .scope label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .range { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .range input { width: 84px; padding: 4px 8px; font-variant-numeric: tabular-nums; }
+  .range input:disabled { opacity: .5; }
+  .ask-row { display: flex; gap: 8px; align-items: flex-end; }
+  #question { flex: 1; resize: vertical; min-height: 48px; }
+  /* История разборов */
+  #history-panel { margin: 0 24px 16px; max-width: 760px; }
+  #history-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+  #history-list li { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
+  #history-list li:first-child { border-top: 0; }
+  .hist-open {
+    flex: 1; min-width: 0; text-align: left; background: none; color: var(--ink);
+    padding: 10px 6px; display: flex; flex-direction: column; gap: 2px;
+  }
+  .hist-open:hover .hist-title { color: var(--accent); }
+  .hist-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hist-meta { font-size: 13px; color: var(--muted); }
+  .hist-open.current .hist-title::before { content: "▶ "; color: var(--accent); }
+  .video-title { font-size: 20px; font-weight: 600; margin: 0; line-height: 1.3; }
+  .msg .time { font-size: 12px; color: var(--muted); margin-left: 6px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Конспектор</h1>
+  <form id="load-form">
+    <input id="url" type="text" required placeholder="Ссылка на видео YouTube" aria-label="Ссылка на видео YouTube">
+    <button id="load-btn" class="primary">Разобрать видео</button>
+  </form>
+  <button id="history-btn" class="ghost" type="button" aria-expanded="false" aria-controls="history-panel">История</button>
+  <p id="status" role="status"></p>
+</header>
+
+<section id="history-panel" class="panel" hidden>
+  <div class="panel-head"><h2>Разобранные видео</h2><span id="history-count" class="muted"></span></div>
+  <ul id="history-list"></ul>
+</section>
+
+<p id="empty">Вставь ссылку на ролик. Появятся плеер, субтитры с таймкодами, выжимка и чат, где можно спросить про всё видео или про отдельный кусок.</p>
+
+<main id="workspace" hidden>
+  <div class="col">
+    <h2 id="video-title" class="video-title"></h2>
+    <div id="player-wrap"><div id="player"></div></div>
+    <section class="panel">
+      <div class="panel-head"><h2>Субтитры</h2><span id="lang" class="muted"></span></div>
+      <div id="transcript"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel">
+      <div class="panel-head"><h2>Выжимка</h2><button id="resummary" class="ghost" type="button">Пересоздать</button></div>
+      <div id="summary" class="prose"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Вопросы к видео</h2><button id="clear-chat" class="ghost" type="button">Очистить чат</button></div>
+      <div id="messages" aria-live="polite"></div>
+
+      <div class="chips">
+        <button class="ghost" type="button" data-q="О чём этот фрагмент? Перескажи подробно.">Перескажи подробно</button>
+        <button class="ghost" type="button" data-q="Какие аргументы и доказательства приводит автор?">Аргументы автора</button>
+        <button class="ghost" type="button" data-q="Объясни сложные места простыми словами.">Объясни проще</button>
+        <button class="ghost" type="button" data-q="С чем здесь можно поспорить? Что автор упускает?">С чем поспорить</button>
+      </div>
+
+      <form id="ask-form">
+        <fieldset class="scope">
+          <legend class="sr">О какой части видео спросить</legend>
+          <label><input type="radio" name="scope" value="all" checked> Всё видео</label>
+          <label><input type="radio" name="scope" value="part"> Фрагмент</label>
+          <span class="range">
+            с <input id="from" placeholder="05:00" aria-label="Начало фрагмента" disabled>
+            <button type="button" class="ghost" id="from-now" title="Взять время из плеера">сейчас</button>
+            до <input id="to" placeholder="12:30" aria-label="Конец фрагмента" disabled>
+            <button type="button" class="ghost" id="to-now" title="Взять время из плеера">сейчас</button>
+          </span>
+        </fieldset>
+        <div class="ask-row">
+          <textarea id="question" rows="2" placeholder="Твой вопрос. Enter — отправить, Shift+Enter — новая строка" aria-label="Вопрос"></textarea>
+          <button id="ask-btn" class="primary">Спросить</button>
+        </div>
+      </form>
+    </section>
+  </div>
+</main>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+const $ = (sel) => document.querySelector(sel);
+
+let video = null;      // данные текущего видео с сервера
+let player = null;     // YouTube-плеер
+let apiReady = false;  // загрузился ли скрипт плеера
+let currentIdx = -1;   // какая строка субтитров сейчас подсвечена
+let hoverTranscript = false;
+
+// ---------- Вспомогательное ----------
+
+function fmt(sec) {
+  sec = Math.floor(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+function parseT(t) { return t.split(":").reduce((acc, p) => acc * 60 + Number(p), 0); }
+function esc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+// Markdown → HTML, а все таймкоды превращаем в кнопки перемотки
+function md(text) {
+  const html = marked.parse(esc(text));
+  return html.replace(/\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g,
+    (m) => `<button class="tc" type="button" data-t="${parseT(m)}">${m}</button>`);
+}
+
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let data;
+  try { data = await r.json(); } catch { throw new Error(`Сервер ответил ${r.status}`); }
+  if (!r.ok) throw new Error(data.error || `Ошибка ${r.status}`);
+  return data;
+}
+
+function plural(n, one, few, many) {
+  const n10 = n % 10, n100 = n % 100;
+  if (n10 === 1 && n100 !== 11) return one;
+  if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return few;
+  return many;
+}
+
+function niceDate(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  return d.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function setStatus(text, isError = false) {
+  $("#status").textContent = text;
+  $("#status").classList.toggle("error", isError);
+}
+
+// ---------- Плеер ----------
+
+window.onYouTubeIframeAPIReady = () => { apiReady = true; if (video) showPlayer(); };
+
+function showPlayer() {
+  if (player) { player.cueVideoById(video.video_id); return; }
+  player = new YT.Player("player", { videoId: video.video_id, playerVars: { rel: 0, playsinline: 1 } });
+}
+
+function seek(sec) {
+  if (!player || !player.seekTo) return;
+  player.seekTo(sec, true);
+  player.playVideo();
+}
+
+// Клик по любому таймкоду на странице перематывает видео
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-t]");
+  if (btn) seek(Number(btn.dataset.t));
+});
+
+// Раз в 0,4 с подсвечиваем строку субтитров, которая сейчас звучит
+setInterval(() => {
+  if (!video || !player || !player.getCurrentTime) return;
+  const t = player.getCurrentTime();
+  const segs = video.segments;
+  let lo = 0, hi = segs.length - 1, idx = -1;
+  while (lo <= hi) {                       // бинарный поиск последней строки со start <= t
+    const mid = (lo + hi) >> 1;
+    if (segs[mid].start <= t) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  if (idx === currentIdx) return;
+  document.getElementById("seg-" + currentIdx)?.classList.remove("now");
+  currentIdx = idx;
+  const el = document.getElementById("seg-" + idx);
+  if (!el) return;
+  el.classList.add("now");
+  if (!hoverTranscript) {                  // не мешаем, если пользователь сам листает
+    const box = $("#transcript");
+    box.scrollTop = el.offsetTop - box.clientHeight / 3;
+  }
+}, 400);
+
+// ---------- Загрузка видео ----------
+
+async function openVideo(urlOrId) {
+  const btn = $("#load-btn");
+  btn.disabled = true;
+  setStatus("Загружаю…");
+  try {
+    video = await api("/api/video", { url: urlOrId });
+    currentIdx = -1;
+    $("#video-title").textContent = video.title || "";
+    document.title = (video.title ? video.title + " — " : "") + "Конспектор";
+    $("#url").value = "https://youtu.be/" + video.video_id;
+    renderTranscript();
+    renderChat();
+    $("#empty").hidden = true;
+    $("#workspace").hidden = false;
+    toggleHistory(false);
+    if (apiReady) showPlayer();
+    // Запоминаем видео в адресе страницы: после обновления оно откроется снова
+    window.history.replaceState(null, "", "?v=" + video.video_id);
+    setStatus("");
+    loadSummary(false);
+    refreshHistory();
+  } catch (err) {
+    setStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("#load-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  openVideo($("#url").value);
+});
+
+function renderTranscript() {
+  const box = $("#transcript");
+  box.innerHTML = video.segments.map((s, i) =>
+    `<div class="line" id="seg-${i}"><button class="tc" type="button" data-t="${s.start}">${fmt(s.start)}</button><span>${esc(s.text)}</span></div>`
+  ).join("");
+  box.scrollTop = 0;
+  const names = { ru: "русские", uk: "украинские", en: "английские" };
+  $("#lang").textContent = (names[video.language] || video.language) + " субтитры";
+}
+$("#transcript").addEventListener("mouseenter", () => hoverTranscript = true);
+$("#transcript").addEventListener("mouseleave", () => hoverTranscript = false);
+
+// ---------- Выжимка ----------
+
+async function loadSummary(force) {
+  const box = $("#summary"), btn = $("#resummary");
+  if (video.summary && !force) { box.innerHTML = md(video.summary); return; }
+  box.innerHTML = '<p class="muted">Готовлю выжимку. На бесплатном тарифе это может занять до минуты.</p>';
+  btn.disabled = true;
+  try {
+    const d = await api("/api/summary", { video_id: video.video_id, force });
+    video.summary = d.summary;
+    box.innerHTML = md(d.summary);
+    if (d.model) refreshHistory();
+  } catch (err) {
+    box.innerHTML = `<p class="error">${esc(err.message)}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+$("#resummary").addEventListener("click", () => loadSummary(true));
+
+// ---------- Чат ----------
+
+function addMsg(role, text, label = "", time = "") {
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  const timeHtml = time ? `<span class="time">${esc(niceDate(time))}</span>` : "";
+  const labelHtml = (label || timeHtml) ? `<span class="label">${esc(label)}${timeHtml}</span>` : "";
+  const body = role === "model" ? md(text) : esc(text);
+  div.innerHTML = `${labelHtml}<div class="body">${body}</div>`;
+  $("#messages").appendChild(div);
+  $("#messages").scrollTop = $("#messages").scrollHeight;
+  return div;
+}
+
+// Показываем сохранённый диалог по видео
+function renderChat() {
+  $("#messages").innerHTML = "";
+  for (const m of video.chat) addMsg(m.role, m.text, m.label || "", m.role === "user" ? m.time : "");
+}
+
+function isPart() { return document.querySelector('input[name="scope"]:checked').value === "part"; }
+
+function updateScope() {
+  $("#from").disabled = $("#to").disabled = !isPart();
+}
+document.querySelectorAll('input[name="scope"]').forEach((r) => r.addEventListener("change", updateScope));
+
+function takeTime(input) {
+  if (player && player.getCurrentTime) input.value = fmt(player.getCurrentTime());
+  document.querySelector('input[name="scope"][value="part"]').checked = true;
+  updateScope();
+}
+$("#from-now").addEventListener("click", () => takeTime($("#from")));
+$("#to-now").addEventListener("click", () => takeTime($("#to")));
+
+$("#ask-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!video) return;
+  const q = $("#question").value.trim();
+  if (!q) return;
+
+  const part = isPart();
+  const start = part ? $("#from").value.trim() : "";
+  const end = part ? $("#to").value.trim() : "";
+  const label = part ? `Фрагмент ${start || "00:00"}–${end || "конец"}` : "";
+
+  const userMsg = addMsg("user", q, label);
+  $("#question").value = "";
+  const btn = $("#ask-btn");
+  btn.disabled = true;
+  const pending = addMsg("pending", "Думаю…");
+
+  try {
+    const d = await api("/api/ask", { video_id: video.video_id, question: q, start, end });
+    pending.remove();
+    addMsg("model", d.answer);
+    refreshHistory();
+  } catch (err) {
+    pending.remove();
+    userMsg.remove();          // вопрос не сохранился на сервере — убираем и его
+    $("#question").value = q;  // и возвращаем текст, чтобы не набирать заново
+    addMsg("error", err.message);
+  } finally {
+    btn.disabled = false;
+    $("#question").focus();
+  }
+});
+
+// Enter — отправить, Shift+Enter — перенос строки
+$("#question").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#ask-form").requestSubmit(); }
+});
+
+// Быстрые вопросы
+document.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => {
+  $("#question").value = b.dataset.q;
+  $("#ask-form").requestSubmit();
+}));
+
+$("#clear-chat").addEventListener("click", async () => {
+  if (!video || !confirm("Удалить весь диалог по этому видео?")) return;
+  try {
+    await api("/api/chat/clear", { video_id: video.video_id });
+    video.chat = [];
+    $("#messages").innerHTML = "";
+    refreshHistory();
+  } catch (err) {
+    addMsg("error", err.message);
+  }
+});
+
+// ---------- История разборов ----------
+
+function toggleHistory(show) {
+  $("#history-panel").hidden = !show;
+  $("#history-btn").setAttribute("aria-expanded", String(show));
+}
+$("#history-btn").addEventListener("click", () => toggleHistory($("#history-panel").hidden));
+
+async function refreshHistory() {
+  let items = [];
+  try {
+    const r = await fetch("/api/history");
+    items = (await r.json()).videos || [];
+  } catch { return; }
+
+  $("#history-btn").textContent = items.length ? `История (${items.length})` : "История";
+  $("#history-count").textContent = items.length ? `${items.length} ${plural(items.length, "видео", "видео", "видео")}` : "";
+  $("#history-list").innerHTML = items.length ? items.map((v) => {
+    const q = v.questions ? ` · ${v.questions} ${plural(v.questions, "вопрос", "вопроса", "вопросов")}` : "";
+    const cur = video && video.video_id === v.video_id ? " current" : "";
+    return `<li>
+      <button class="hist-open${cur}" type="button" data-open="${v.video_id}">
+        <span class="hist-title">${esc(v.title)}</span>
+        <span class="hist-meta">${esc(niceDate(v.updated))}${q}</span>
+      </button>
+      <button class="ghost" type="button" data-del="${v.video_id}" aria-label="Удалить разбор">Удалить</button>
+    </li>`;
+  }).join("") : '<li class="muted" style="padding:10px 6px">Пока пусто. Разбери первое видео.</li>';
+  return items;
+}
+
+$("#history-list").addEventListener("click", async (e) => {
+  const open = e.target.closest("[data-open]");
+  if (open) { openVideo(open.dataset.open); return; }
+
+  const del = e.target.closest("[data-del]");
+  if (!del) return;
+  const title = del.parentElement.querySelector(".hist-title").textContent;
+  if (!confirm(`Удалить разбор и диалог?\n\n${title}`)) return;
+  await api("/api/video/delete", { video_id: del.dataset.del });
+  if (video && video.video_id === del.dataset.del) {  // удалили открытое видео
+    video = null;
+    if (player && player.stopVideo) player.stopVideo();
+    $("#workspace").hidden = true;
+    $("#empty").hidden = false;
+    $("#url").value = "";
+    document.title = "Конспектор";
+    window.history.replaceState(null, "", "/");
+  }
+  refreshHistory();
+});
+
+// ---------- Старт страницы ----------
+
+(async () => {
+  const items = await refreshHistory();
+  const fromUrl = new URLSearchParams(location.search).get("v");
+  if (fromUrl) openVideo(fromUrl);                  // открыть видео из адреса
+  else if (items && items.length) toggleHistory(true);  // иначе показать историю
+})();
+</script>
+</body>
+</html>
